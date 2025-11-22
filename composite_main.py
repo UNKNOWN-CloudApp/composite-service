@@ -161,11 +161,6 @@ def composite_create_booking(booking: BookingCreate):
     - booking.landlord_id must exist in user-service
     """
 
-    # NOTE: Your current Listing and User services use integer IDs in their
-    # models, while Booking uses UUID. For the assignment, the important part
-    # is the *pattern* of checking related resources across services.
-    # You can later unify your ID types if you want everything to run fully.
-
     # 1. Check listing exists
     try:
         # Assuming listing_id corresponds to a listing in the listing-service.
