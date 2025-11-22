@@ -135,7 +135,7 @@ def composite_get_booking(booking_id: UUID):
 
 
 # ------------------------------------------------------------------------
-# 2) Logical foreign key constraints for booking creation
+# Logical foreign key constraints for booking creation
 # ------------------------------------------------------------------------
 # Booking model has:
 #   listing_id: UUID
@@ -201,7 +201,7 @@ def composite_create_booking(booking: BookingCreate):
 
 
 # ------------------------------------------------------------------------
-# 3) Threaded composite endpoint 
+# Threaded composite endpoint 
 # ------------------------------------------------------------------------
 # This endpoint:
 #   GET /composite/listing/{listing_id}
