@@ -13,18 +13,13 @@ from uuid import UUID
 
 import uvicorn
 
-# ------------------------------------------------------------------------
-# Config: where are the atomic microservices?
-# ------------------------------------------------------------------------
-
-# You can override these in your environment / Docker:
 #   USER_SERVICE_URL=http://user-service:8000
 #   LISTING_SERVICE_URL=http://listing-service:8001
 #   BOOKING_SERVICE_URL=http://booking-service:8002
 
-USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://35.184.175.130:8000")
-LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://35.232.88.9:8001")
-BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "http://136.114.135.5:8002")
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://35.226.195.29:8000/")
+LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.27.182.168:8000/")
+BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://fastapi-1038095584126.europe-west1.run.app")
 
 COMPOSITE_PORT = int(os.environ.get("FASTAPIPORT", 8003))
 
@@ -91,14 +86,8 @@ def forward_post(base_url: str, path: str, payload: Dict[str, Any]) -> Any:
 
 
 # ------------------------------------------------------------------------
-# 1) Encapsulated endpoints: expose atomic APIs via composite
+# encapsulate and expose the atomic microservices
 # ------------------------------------------------------------------------
-# These show that the composite “implements” the microservice APIs and just
-# delegates onto the atomic services underneath.
-# ------------------------------------------------------------------------
-
-
-# ---- USER-SERVICE passthroughs ----
 
 @app.get("/users/{user_id}", response_model=UserRead)
 def composite_get_user(user_id: int = Path(..., ge=1)):
@@ -111,7 +100,6 @@ def composite_get_user(user_id: int = Path(..., ge=1)):
     return data
 
 
-# ---- LISTING-SERVICE passthroughs ----
 
 @app.get("/listing", response_model=List[ListingRead])
 def composite_list_listings():
@@ -134,8 +122,6 @@ def composite_get_listing(listing_id: int = Path(..., ge=1)):
     data = forward_get(LISTING_SERVICE_URL, f"/listing/{listing_id}")
     return data
 
-
-# ---- BOOKING-SERVICE passthrough (simple GET) ----
 
 @app.get("/bookings/{booking_id}", response_model=BookingRead)
 def composite_get_booking(booking_id: UUID):
@@ -160,7 +146,7 @@ def composite_get_booking(booking_id: UUID):
 #   - Listing with this listing_id exists
 #   - Tenant user exists
 #   - Landlord user exists
-# BEFORE it forwards the create request to booking-service.
+# before it forwards the create request to booking-service.
 # ------------------------------------------------------------------------
 
 
@@ -215,7 +201,7 @@ def composite_create_booking(booking: BookingCreate):
 
 
 # ------------------------------------------------------------------------
-# 3) Threaded composite endpoint (using `threading` + `time`)
+# 3) Threaded composite endpoint 
 # ------------------------------------------------------------------------
 # This endpoint:
 #   GET /composite/listing/{listing_id}
@@ -223,9 +209,6 @@ def composite_create_booking(booking: BookingCreate):
 # runs multiple calls in parallel:
 #   - GET listing-service /listing/{id}
 #   - GET booking-service /bookings (then filters those for this listing)
-#
-# This uses Python's `threading.Thread` and `time.sleep` to clearly show
-# parallelism for your assignment.
 # ------------------------------------------------------------------------
 
 
@@ -326,10 +309,6 @@ def composite_listing_view(listing_id: int = Path(..., ge=1)):
         response["warning"] = warning
     return response
 
-
-# ------------------------------------------------------------------------
-# Root + health
-# ------------------------------------------------------------------------
 
 
 @app.get("/")
