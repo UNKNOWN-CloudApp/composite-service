@@ -17,7 +17,7 @@ import uvicorn
 #   LISTING_SERVICE_URL=http://listing-service:8001
 #   BOOKING_SERVICE_URL=http://booking-service:8002
 
-USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://35.226.195.29:8000/")
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://34.27.64.57:8000/")
 LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8000")
 BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://fastapi-1038095584126.europe-west1.run.app")
 
