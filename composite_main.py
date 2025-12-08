@@ -230,7 +230,7 @@ def list_available_listings(
         if lst_start and not ranges_overlap(lst_start, lst_end, start_dt, end_dt):
             continue
 
-        if lst["id"] in booked_listing_ids:
+        if lst["id"] in booked_listing_ids: 
             continue
 
         available.append(lst)
@@ -238,34 +238,7 @@ def list_available_listings(
     return {"available_listings": available}
 
 
-# -------------------------------------------------------------------
-# Endpoint 2: Search listings by keyword (excluding user's own listings)
-# -------------------------------------------------------------------
 
-@app.get("/composite/keyword-search-listings")
-def keyword_search_listings(
-    user_email: str = Query(..., description="Email of current logged-in user"),
-    keyword: Optional[str] = Query(None, description="Keyword for search"),
-):
-    """Return listings filtered by keyword, excluding those owned by the current user."""
-      
-    result: Dict[str, Any] = {}
-    fetch_listings(result, keyword)
-
-    if "listings_error" in result:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Listing service error: {result['listings_error']}",
-        )
-
-    listings = result.get("listings", [])
-
-    filtered = [
-        l for l in listings
-        if l.get("landlord_email") != user_email
-    ]
-
-    return filtered
 
 
 # -------------------------------------------------------------------
