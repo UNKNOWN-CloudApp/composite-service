@@ -8,10 +8,12 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 import requests
-from fastapi import FastAPI, HTTPException, Path
-from uuid import UUID
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from datetime import date, datetime
 
 import uvicorn
+
 
 #   USER_SERVICE_URL=http://user-service:8000
 #   LISTING_SERVICE_URL=http://listing-service:8001
@@ -21,300 +23,259 @@ USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://34.27.64.57:8000/"
 LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8000")
 BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://fastapi-1038095584126.europe-west1.run.app")
 
-COMPOSITE_PORT = int(os.environ.get("FASTAPIPORT", 8003))
-
+COMPOSITE_PORT = int(os.environ.get("FASTAPIPORT", 8080))
+port = 8080
 hostname = socket.gethostname()
 
+
 app = FastAPI(
-    title="Subletting Composite Service",
-    description=(
-        "Composite service that encapsulates user-, listing-, and booking-services. "
-        "Implements logical foreign key constraints and uses threads for parallel execution."
-    ),
-    version="1.0.0",
+    title="Composite Service",
+    description="Composite microservice for listing + booking aggregation",
+    version="0.1.0",
 )
 
-class UserRead(BaseModel):
-    id: int
-    username: str
-    email: str
-
-class ListingRead(BaseModel):
-    id: int
-    title: str
-    price: float
-
-class BookingCreate(BaseModel):
-    listing_id: UUID
-    tenant_id: UUID
-    landlord_id: UUID
-
-class BookingRead(BookingCreate):
-    id: UUID
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
+# MOCK DATA 
 
-# ------------------------------------------------------------------------
-# Small helper: forwarding GET/POST to atomic services
-# ------------------------------------------------------------------------
+USE_MOCK = True  # True
 
-def forward_get(base_url: str, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-    """Forward a GET request to one of the atomic services."""
-    url = f"{base_url}{path}"
-    try:
-        r = requests.get(url, params=params)
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Error calling {url}: {e}")
-
-    if r.status_code >= 400:
-        # Pass through error from atomic service
-        raise HTTPException(status_code=r.status_code, detail=r.text)
-    return r.json()
-
-
-def forward_post(base_url: str, path: str, payload: Dict[str, Any]) -> Any:
-    """Forward a POST request to one of the atomic services."""
-    url = f"{base_url}{path}"
-    try:
-        r = requests.post(url, json=payload)
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Error calling {url}: {e}")
-
-    if r.status_code >= 400:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
-    return r.json()
-
-
-# ------------------------------------------------------------------------
-# encapsulate and expose the atomic microservices
-# ------------------------------------------------------------------------
-
-@app.get("/users/{user_id}", response_model=UserRead)
-def composite_get_user(user_id: int = Path(..., ge=1)):
-    """
-    Encapsulated endpoint for `GET /users/{user_id}`.
-
-    Delegates to the user-service.
-    """
-    data = forward_get(USER_SERVICE_URL, f"/users/{user_id}")
-    return data
-
-
-
-@app.get("/listing", response_model=List[ListingRead])
-def composite_list_listings():
-    """
-    Encapsulated endpoint for `GET /listing`.
-
-    Delegates to the listing-service.
-    """
-    data = forward_get(LISTING_SERVICE_URL, "/listing")
-    return data
-
-
-@app.get("/listing/{listing_id}", response_model=ListingRead)
-def composite_get_listing(listing_id: int = Path(..., ge=1)):
-    """
-    Encapsulated endpoint for `GET /listing/{listing_id}`.
-
-    Delegates to the listing-service.
-    """
-    data = forward_get(LISTING_SERVICE_URL, f"/listing/{listing_id}")
-    return data
-
-
-@app.get("/bookings/{booking_id}", response_model=BookingRead)
-def composite_get_booking(booking_id: UUID):
-    """
-    Encapsulated endpoint for `GET /bookings/{booking_id}`.
-
-    Delegates to the booking-service.
-    """
-    data = forward_get(BOOKING_SERVICE_URL, f"/bookings/{booking_id}")
-    return data
-
-
-# ------------------------------------------------------------------------
-# Logical foreign key constraints for booking creation
-# ------------------------------------------------------------------------
-# Booking model has:
-#   listing_id: UUID
-#   tenant_id: UUID
-#   landlord_id: UUID
-#
-# Composite checks:
-#   - Listing with this listing_id exists
-#   - Tenant user exists
-#   - Landlord user exists
-# before it forwards the create request to booking-service.
-# ------------------------------------------------------------------------
-
-
-@app.post("/bookings", response_model=BookingRead, status_code=201)
-def composite_create_booking(booking: BookingCreate):
-    """
-    Composite booking creation.
-
-    Demonstrates *logical foreign key constraints* across microservices:
-    - booking.listing_id must exist in listing-service
-    - booking.tenant_id must exist in user-service
-    - booking.landlord_id must exist in user-service
-    """
-
-    # 1. Check listing exists
-    try:
-        # Assuming listing_id corresponds to a listing in the listing-service.
-        # If types differ, this will just 4xx and we turn that into a 400.
-        _ = forward_get(LISTING_SERVICE_URL, f"/listing/{booking.listing_id}")
-    except HTTPException as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid listing_id '{booking.listing_id}': {e.detail}",
-        )
-
-    # 2. Check tenant exists
-    try:
-        _ = forward_get(USER_SERVICE_URL, f"/users/{booking.tenant_id}")
-    except HTTPException as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid tenant_id '{booking.tenant_id}': {e.detail}",
-        )
-
-    # 3. Check landlord exists
-    try:
-        _ = forward_get(USER_SERVICE_URL, f"/users/{booking.landlord_id}")
-    except HTTPException as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid landlord_id '{booking.landlord_id}': {e.detail}",
-        )
-
-    # If all checks pass, delegate to booking-service
-    created = forward_post(BOOKING_SERVICE_URL, "/bookings", booking.model_dump())
-    return created
-
-
-# ------------------------------------------------------------------------
-# Threaded composite endpoint 
-# ------------------------------------------------------------------------
-# This endpoint:
-#   GET /composite/listing/{listing_id}
-#
-# runs multiple calls in parallel:
-#   - GET listing-service /listing/{id}
-#   - GET booking-service /bookings (then filters those for this listing)
-# ------------------------------------------------------------------------
-
-
-def threaded_safe_get(
-    url: str,
-    result_dict: Dict[str, Any],
-    key: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> None:
-    """
-    Helper function used as thread target.
-
-    It performs a GET request, stores the JSON (or error) in result_dict[key].
-    Uses time.sleep(...) just so it's obvious that multiple threads overlap.
-    """
-    # Simulate a bit of network / processing delay (optional)
-    time.sleep(0.05)
-
-    try:
-        r = requests.get(url, params=params)
-        if r.status_code >= 400:
-            result_dict[key] = {"error": r.text, "status_code": r.status_code}
-        else:
-            result_dict[key] = r.json()
-    except Exception as e:
-        result_dict[key] = {"error": str(e)}
-
-
-@app.get("/composite/listing/{listing_id}")
-def composite_listing_view(listing_id: int = Path(..., ge=1)):
-    """
-    Composite 'view' that returns listing + its bookings in one response.
-
-    Uses *threads* to call listing-service and booking-service in parallel.
-
-    Example response:
+MOCK_LISTINGS = [
     {
-      "listing": {...},
-      "bookings_for_listing": [...],
-      "source_host": "..."
+        "id": 1,
+        "landlord_email": "owner1@example.com",
+        "name": "Cozy Studio",
+        "address": "Brooklyn NY",
+        "start_date": "2026-01-01T00:00:00",
+        "end_date": "2026-12-31T23:59:59",
+        "description": "A cozy studio near the park."
+    },
+    {
+        "id": 2,
+        "landlord_email": "owner2@example.com",
+        "name": "Modern Loft",
+        "address": "Manhattan NY",
+        "start_date": "2026-03-01T00:00:00",
+        "end_date": "2026-05-01T09:00:00",
+        "description": "AC Available."
+    },
+    {
+        "id": 3,
+        "landlord_email": "david.lee@example.com",
+        "name": "House",
+        "address": "Queens",
+        "start_date": "2026-01-01T00:00:00",
+        "end_date": "2026-05-01T00:00:00",
+        "description": "User owns this house."
+    },
+]
+
+MOCK_BOOKINGS = [
+    {
+        "id": 10,
+        "listing_id": 1,
+        "tenant_email": "someone@example.com",
+        "start_date": "2026-01-10T10:00:00",
+        "end_date": "2026-01-20T10:00:00"
+    },
+    {
+        "id": 11,
+        "listing_id": 2,
+        "tenant_email": "eva@example.com",
+        "start_date": "2026-05-01T09:00:00",
+        "end_date": "2026-05-01T09:00:00"
     }
+]
+
+def parse_iso_datetime(s: str) -> datetime:
+    try:
+        if len(s) == 10:
+            return datetime.fromisoformat(s + "T00:00:00")
+        return datetime.fromisoformat(s)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime format: {s}")
+
+def ranges_overlap(start1: datetime, end1: Optional[datetime],
+                   start2: datetime, end2: Optional[datetime]) -> bool:
+    if end1 is None:
+        end1 = datetime.max
+    if end2 is None:
+        end2 = datetime.max
+    return not (end1 <= start2 or end2 <= start1)
+
+def fetch_listings(result: Dict[str, Any], keyword: Optional[str]) -> None:
+    if USE_MOCK:
+        listings = MOCK_LISTINGS.copy()
+
+        # keyword filtering (address or description)
+        if keyword:
+            keyword_lower = keyword.lower()
+            listings = [
+                lst for lst in listings
+                if keyword_lower in lst["address"].lower() or
+                   keyword_lower in lst["description"].lower()
+            ]
+
+        result["listings"] = listings
+        return
+
+    # ---- real version ----
+    try:
+        params = {"keyword": keyword} if keyword else {}
+        resp = requests.get(f"{LISTING_SERVICE_URL}/listings", params=params, timeout=5)
+        resp.raise_for_status()
+        result["listings"] = resp.json()
+    except Exception as e:
+        result["listings_error"] = str(e)
+
+        
+
+def fetch_bookings(result: dict, start_dt: datetime, end_dt: datetime):
+    if USE_MOCK:
+        overlapping = []
+        for b in MOCK_BOOKINGS:
+            b_start = parse_iso_datetime(b["start_date"])
+            b_end = parse_iso_datetime(b["end_date"]) if b["end_date"] else None
+
+            if ranges_overlap(b_start, b_end, start_dt, end_dt):
+                overlapping.append(b)
+
+        result["bookings"] = overlapping
+        return
+
+    # ---- real version ----
+    try:
+        resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=5)
+        resp.raise_for_status()
+        all_bookings = resp.json()
+
+        overlapping = []
+        for b in all_bookings:
+            b_start = parse_iso_datetime(b["start_date"])
+            b_end = parse_iso_datetime(b["end_date"]) if b["end_date"] else None
+
+            if ranges_overlap(b_start, b_end, start_dt, end_dt):
+                overlapping.append(b)
+
+        result["bookings"] = overlapping
+
+    except Exception as e:
+        result["bookings_error"] = str(e)
+
+
+# -------------------------------------------------------------------
+# Endpoint 1: Find available listings
+# -------------------------------------------------------------------
+
+@app.get("/composite/available-listings")
+def list_available_listings(
+    start: str = Query(..., description="Desired start date (YYYY-MM-DD or ISO datetime)"),
+    end: str = Query(..., description="Desired end date (YYYY-MM-DD or ISO datetime)"),
+    user_email: str = Query(..., description="Email of the current logged-in user"),
+    keyword: Optional[str] = Query(None, description="Keyword for listing search"),
+):
+    """Return listings that:
+       1) Do not belong to the current user
+       2) Listing's own date range overlaps with desired range
+       3) Do not have an existing overlapping booking
+       Listing-service and booking-service are called in parallel threads.
     """
-    results: Dict[str, Any] = {
-        "listing": None,
-        "all_bookings": None,
-    }
 
-    listing_url = f"{LISTING_SERVICE_URL}/listing/{listing_id}"
-    bookings_url = f"{BOOKING_SERVICE_URL}/bookings"
+    start_dt = parse_iso_datetime(start)
+    end_dt = parse_iso_datetime(end)
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="End date must be after start date")
 
-    # Create threads
-    t_listing = threading.Thread(
-        target=threaded_safe_get,
-        args=(listing_url, results, "listing"),
-    )
-    t_bookings = threading.Thread(
-        target=threaded_safe_get,
-        args=(bookings_url, results, "all_bookings"),
-    )
+    shared: Dict[str, Any] = {}
 
-    # Start threads
-    t_listing.start()
-    t_bookings.start()
+    t1 = threading.Thread(target=fetch_listings, args=(shared, keyword))
+    t2 = threading.Thread(target=fetch_bookings, args=(shared, start_dt, end_dt))
 
-    # Wait for both to complete
-    t_listing.join()
-    t_bookings.join()
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
-    # Handle cases where one of the calls failed
-    listing_data = results.get("listing")
-    if isinstance(listing_data, dict) and "error" in listing_data:
-        # Pass error up
+    # Errors
+    if "listings_error" in shared:
+        raise HTTPException(status_code=502, detail=f"Listing service error: {shared['listings_error']}")
+
+    if "bookings_error" in shared:
+        raise HTTPException(status_code=502, detail=f"Booking service error: {shared['bookings_error']}")
+
+    listings: List[Dict[str, Any]] = shared.get("listings", [])
+    bookings: List[Dict[str, Any]] = shared.get("bookings", [])
+
+    # Listing IDs that already have overlapping bookings
+    booked_listing_ids = {b["listing_id"] for b in bookings}
+
+    available: List[Dict[str, Any]] = []
+
+    for lst in listings:
+        landlord = lst.get("landlord_email")
+
+        if landlord == user_email:
+            continue
+
+        lst_start = parse_iso_datetime(lst["start_date"]) if lst.get("start_date") else None
+        lst_end = parse_iso_datetime(lst["end_date"]) if lst.get("end_date") else None
+
+        if lst_start and not ranges_overlap(lst_start, lst_end, start_dt, end_dt):
+            continue
+
+        if lst["id"] in booked_listing_ids:
+            continue
+
+        available.append(lst)
+
+    return {"available_listings": available}
+
+
+# -------------------------------------------------------------------
+# Endpoint 2: Search listings by keyword (excluding user's own listings)
+# -------------------------------------------------------------------
+
+@app.get("/composite/keyword-search-listings")
+def keyword_search_listings(
+    user_email: str = Query(..., description="Email of current logged-in user"),
+    keyword: Optional[str] = Query(None, description="Keyword for search"),
+):
+    """Return listings filtered by keyword, excluding those owned by the current user."""
+      
+    result: Dict[str, Any] = {}
+    fetch_listings(result, keyword)
+
+    if "listings_error" in result:
         raise HTTPException(
             status_code=502,
-            detail=f"Error fetching listing: {listing_data['error']}",
+            detail=f"Listing service error: {result['listings_error']}",
         )
 
-    bookings_data = results.get("all_bookings")
-    if isinstance(bookings_data, dict) and "error" in bookings_data:
-        # We can still return the listing, but warn about bookings
-        bookings_for_listing: List[Dict[str, Any]] = []
-        warning = f"Could not fetch bookings: {bookings_data['error']}"
-    else:
-        # Filter bookings client-side for this listing_id
-        all_bookings_list = bookings_data or []
-        bookings_for_listing = [
-            b for b in all_bookings_list
-            if str(b.get("listing_id")) == str(listing_id)
-        ]
-        warning = None
+    listings = result.get("listings", [])
 
-    response: Dict[str, Any] = {
-        "listing": listing_data,
-        "bookings_for_listing": bookings_for_listing,
-        "source_host": hostname,
-    }
-    if warning:
-        response["warning"] = warning
-    return response
+    filtered = [
+        l for l in listings
+        if l.get("landlord_email") != user_email
+    ]
+
+    return filtered
 
 
+# -------------------------------------------------------------------
+# Root & Entrypoint
+# -------------------------------------------------------------------
 
 @app.get("/")
 def root():
-    return {
-        "message": "Subletting Composite Service",
-        "encapsulates": ["user-service", "listing-service", "booking-service"],
-        "host": hostname,
-    }
+    return {"message": "Composite Service"}
 
 
-# Entrypoint
 if __name__ == "__main__":
-    uvicorn.run("composite_main:app", host="0.0.0.0", port=COMPOSITE_PORT, reload=True)
+    uvicorn.run("composite_main:app", host="0.0.0.0", port=port, reload=True)
