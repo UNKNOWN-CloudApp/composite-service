@@ -19,9 +19,9 @@ import uvicorn
 #   LISTING_SERVICE_URL=http://listing-service:8001
 #   BOOKING_SERVICE_URL=http://booking-service:8002
 
-USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://34.27.64.57:8000/")
-LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8000")
-BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://fastapi-1038095584126.europe-west1.run.app")
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://34.27.64.57:8080/")
+LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8080")
+BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://booking-service-1038095584126.us-central1.run.app")
 
 COMPOSITE_PORT = int(os.environ.get("FASTAPIPORT", 8080))
 port = 8080
@@ -42,58 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# MOCK DATA 
-
-USE_MOCK = True  # True
-
-MOCK_LISTINGS = [
-    {
-        "id": 1,
-        "landlord_email": "owner1@example.com",
-        "name": "Cozy Studio",
-        "address": "Brooklyn NY",
-        "start_date": "2026-01-01T00:00:00",
-        "end_date": "2026-12-31T23:59:59",
-        "description": "A cozy studio near the park."
-    },
-    {
-        "id": 2,
-        "landlord_email": "owner2@example.com",
-        "name": "Modern Loft",
-        "address": "Manhattan NY",
-        "start_date": "2026-03-01T00:00:00",
-        "end_date": "2026-05-01T09:00:00",
-        "description": "AC Available."
-    },
-    {
-        "id": 3,
-        "landlord_email": "david.lee@example.com",
-        "name": "House",
-        "address": "Queens",
-        "start_date": "2026-01-01T00:00:00",
-        "end_date": "2026-05-01T00:00:00",
-        "description": "User owns this house."
-    },
-]
-
-MOCK_BOOKINGS = [
-    {
-        "id": 10,
-        "listing_id": 1,
-        "tenant_email": "someone@example.com",
-        "start_date": "2026-01-10T10:00:00",
-        "end_date": "2026-01-20T10:00:00"
-    },
-    {
-        "id": 11,
-        "listing_id": 2,
-        "tenant_email": "eva@example.com",
-        "start_date": "2026-05-01T09:00:00",
-        "end_date": "2026-05-01T09:00:00"
-    }
-]
-
 def parse_iso_datetime(s: str) -> datetime:
     try:
         if len(s) == 10:
@@ -102,55 +50,36 @@ def parse_iso_datetime(s: str) -> datetime:
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid datetime format: {s}")
 
-def ranges_overlap(start1: datetime, end1: Optional[datetime],
-                   start2: datetime, end2: Optional[datetime]) -> bool:
-    if end1 is None:
-        end1 = datetime.max
-    if end2 is None:
-        end2 = datetime.max
-    return not (end1 <= start2 or end2 <= start1)
+def ranges_overlap(req_start, req_end, listing_start, listing_end):
+    # If user gave no date filters → nothing is excluded
+    if req_start is None and req_end is None:
+        return True  # treat as no filtering
+
+    # If only start given → check listing_end >= req_start
+    if req_start is not None and req_end is None:
+        return listing_end is None or listing_end >= req_start
+
+    # If only end given → check listing_start <= req_end
+    if req_start is None and req_end is not None:
+        return listing_start <= req_end
+
+    # If both given:
+    return not (listing_end < req_start or listing_start > req_end)
+
 
 def fetch_listings(result: Dict[str, Any], keyword: Optional[str]) -> None:
-    if USE_MOCK:
-        listings = MOCK_LISTINGS.copy()
 
-        # keyword filtering (address or description)
-        if keyword:
-            keyword_lower = keyword.lower()
-            listings = [
-                lst for lst in listings
-                if keyword_lower in lst["address"].lower() or
-                   keyword_lower in lst["description"].lower()
-            ]
-
-        result["listings"] = listings
-        return
-
-    # ---- real version ----
     try:
         params = {"keyword": keyword} if keyword else {}
-        resp = requests.get(f"{LISTING_SERVICE_URL}/listings", params=params, timeout=5)
+        resp = requests.get(f"{LISTING_SERVICE_URL}/listing", params=params, timeout=5)
         resp.raise_for_status()
         result["listings"] = resp.json()
     except Exception as e:
         result["listings_error"] = str(e)
-
         
 
 def fetch_bookings(result: dict, start_dt: datetime, end_dt: datetime):
-    if USE_MOCK:
-        overlapping = []
-        for b in MOCK_BOOKINGS:
-            b_start = parse_iso_datetime(b["start_date"])
-            b_end = parse_iso_datetime(b["end_date"]) if b["end_date"] else None
 
-            if ranges_overlap(b_start, b_end, start_dt, end_dt):
-                overlapping.append(b)
-
-        result["bookings"] = overlapping
-        return
-
-    # ---- real version ----
     try:
         resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=5)
         resp.raise_for_status()
@@ -176,8 +105,8 @@ def fetch_bookings(result: dict, start_dt: datetime, end_dt: datetime):
 
 @app.get("/composite/available-listings")
 def list_available_listings(
-    start: str = Query(..., description="Desired start date (YYYY-MM-DD or ISO datetime)"),
-    end: str = Query(..., description="Desired end date (YYYY-MM-DD or ISO datetime)"),
+    start: Optional[str] = Query(None, description="Desired start date (YYYY-MM-DD or ISO datetime)"),
+    end: Optional[str] = Query(None, description="Desired end date (YYYY-MM-DD or ISO datetime)"),
     user_email: str = Query(..., description="Email of the current logged-in user"),
     keyword: Optional[str] = Query(None, description="Keyword for listing search"),
 ):
@@ -187,10 +116,11 @@ def list_available_listings(
        3) Do not have an existing overlapping booking
        Listing-service and booking-service are called in parallel threads.
     """
-
-    start_dt = parse_iso_datetime(start)
-    end_dt = parse_iso_datetime(end)
-    if end_dt <= start_dt:
+    if start:
+        start_dt = parse_iso_datetime(start)
+    if end:
+        end_dt = parse_iso_datetime(end)
+    if start_dt and end_dt and end_dt <= start_dt:
         raise HTTPException(status_code=400, detail="End date must be after start date")
 
     shared: Dict[str, Any] = {}
