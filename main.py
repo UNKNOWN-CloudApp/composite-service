@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -51,18 +51,21 @@ class PaginatedResponse(BaseModel):
     _links: PaginatedLinks
 
 
-def to_datetime(date_str: str) -> datetime:
-    """Convert date string to datetime object."""
+def to_date(date_input: str | date) -> date:
+    """Convert date string or date object to date object."""
+    if isinstance(date_input, date):
+        return date_input
+    
     try:
-        if len(date_str) == 10:  # YYYY-MM-DD
-            return datetime.fromisoformat(date_str + "T00:00:00")
-        return datetime.fromisoformat(date_str)
+        if len(date_input) == 10:  # YYYY-MM-DD
+            return datetime.fromisoformat(date_input).date()
+        return datetime.fromisoformat(date_input).date()
     except Exception:
-        raise HTTPException(400, f"Invalid date format: {date_str}")
+        raise HTTPException(400, f"Invalid date format: {date_input}")
 
 
-def dates_overlap(start1: Optional[datetime], end1: Optional[datetime], 
-                  start2: Optional[datetime], end2: Optional[datetime]) -> bool:
+def dates_overlap(start1: Optional[date], end1: Optional[date], 
+                  start2: Optional[date], end2: Optional[date]) -> bool:
     """Check if two date ranges overlap."""
     # No filter = include everything
     if start1 is None and end1 is None:
@@ -112,9 +115,9 @@ def available_listings(
     address: Optional[str] = Query(None),
     description: Optional[str] = Query(None),
     
-    # Date filters
-    start: Optional[str] = Query(None),
-    end: Optional[str] = Query(None),
+    # Date filters - now accepts date objects
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
     
     # Pagination
     page: int = Query(1, ge=1),
@@ -130,11 +133,8 @@ def available_listings(
     - Aren't already booked
     """
     
-    # Parse dates
-    start_dt = to_datetime(start) if start else None
-    end_dt = to_datetime(end) if end else None
-    
-    if start_dt and end_dt and end_dt <= start_dt:
+    # Validate dates
+    if start and end and end <= start:
         raise HTTPException(400, "End date must be after start date")
     
     # Fetch data in parallel
@@ -158,9 +158,9 @@ def available_listings(
             # Keep only bookings that overlap with requested dates
             overlapping = []
             for b in all_bookings:
-                b_start = to_datetime(b["start_date"])
-                b_end = to_datetime(b["end_date"]) if b.get("end_date") else None
-                if dates_overlap(start_dt, end_dt, b_start, b_end):
+                b_start = to_date(b["start_date"])
+                b_end = to_date(b["end_date"]) if b.get("end_date") else None
+                if dates_overlap(start, end, b_start, b_end):
                     overlapping.append(b)
             results["bookings"] = overlapping
         except Exception as e:
@@ -190,9 +190,9 @@ def available_listings(
             continue
         
         # Check date overlap
-        lst_start = to_datetime(lst["start_date"]) if lst.get("start_date") else None
-        lst_end = to_datetime(lst["end_date"]) if lst.get("end_date") else None
-        if not dates_overlap(start_dt, end_dt, lst_start, lst_end):
+        lst_start = to_date(lst["start_date"]) if lst.get("start_date") else None
+        lst_end = to_date(lst["end_date"]) if lst.get("end_date") else None
+        if not dates_overlap(start, end, lst_start, lst_end):
             continue
         
         # Skip booked listings
