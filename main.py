@@ -50,6 +50,37 @@ class PaginatedResponse(BaseModel):
     total_pages: int
     _links: PaginatedLinks
 
+def assert_user_exists(email: str):
+    try:
+        r = requests.get(
+            f"{USER_SERVICE_URL.rstrip('/')}/users/exists",
+            params={"email": email},
+            timeout=5,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"User service unreachable: {e}")
+
+    if r.status_code != 200:
+        raise HTTPException(502, f"User service error ({r.status_code}): {r.text}")
+
+    data = r.json()
+    if not data.get("exists"):
+        raise HTTPException(400, f"Invalid user_email (no such user): {email}")
+
+def assert_listing_exists(listing_id: int):
+    try:
+        r = requests.get(
+            f"{LISTING_SERVICE_URL.rstrip('/')}/listing/{listing_id}",
+            timeout=5,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Listing service unreachable: {e}")
+
+    if r.status_code == 404:
+        raise HTTPException(400, f"Invalid listing_id (no such listing): {listing_id}")
+
+    if r.status_code != 200:
+        raise HTTPException(502, f"Listing service error ({r.status_code}): {r.text}")
 
 def to_date(date_input: str | date) -> date:
     """Convert date string or date object to date object."""
@@ -132,6 +163,8 @@ def available_listings(
     - Don't belong to the current user (unless filtered)
     - Aren't already booked
     """
+    # logical FK constraint
+    assert_user_exists(user_email)
     
     # Validate dates
     if start and end and end <= start:
@@ -182,6 +215,11 @@ def available_listings(
     
     # Filter available listings
     booked_ids = {b["listing_id"] for b in results["bookings"]}
+
+    # logical FK constraint
+    for listing_id in booked_ids:
+        assert_listing_exists(listing_id)
+
     available = []
     
     for lst in results["listings"]:
