@@ -14,7 +14,7 @@ import uvicorn
 
 # Service URLs
 USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://34.27.64.57:8080/")
-LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8080")
+LISTING_SERVICE_URL = os.environ.get("LISTING_SERVICE_URL", "http://34.134.23.74:8080/")
 BOOKING_SERVICE_URL = os.environ.get("BOOKING_SERVICE_URL", "https://booking-service-1038095584126.us-central1.run.app")
 
 port = 8080
@@ -130,7 +130,7 @@ def get_listings(filters: dict) -> List[dict]:
 
 def get_bookings() -> List[dict]:
     """Fetch all bookings from booking service."""
-    resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=5)
+    resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=15)
     resp.raise_for_status()
     return resp.json()
 
