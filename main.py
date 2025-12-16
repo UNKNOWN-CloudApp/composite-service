@@ -116,6 +116,24 @@ def dates_overlap(start1: Optional[date], end1: Optional[date],
         return start2 <= end1
     return not (end2 < start1 or start2 > end1)
 
+def date_covers(request_start: Optional[date], request_end: Optional[date],
+           avail_start: Optional[date], avail_end: Optional[date]) -> bool:
+    # No requested filter => include all
+    if request_start is None and request_end is None:
+        return True
+
+    # If user requests a start, listing must start on/before it (or be open-start)
+    if request_start is not None:
+        if avail_start is not None and avail_start > request_start:
+            return False
+
+    # If user requests an end, listing must end on/after it (or be open-end)
+    if request_end is not None:
+        if avail_end is not None and avail_end < request_end:
+            return False
+
+    return True
+
 
 def get_listings(filters: dict) -> List[dict]:
     """Fetch listings from listing service."""
@@ -223,10 +241,10 @@ def available_listings(
         if not landlord_email and lst.get("landlord_email") == user_email:
             continue
         
-        # Check date overlap
+        # Check date covers
         lst_start = to_date(lst["start_date"]) if lst.get("start_date") else None
         lst_end = to_date(lst["end_date"]) if lst.get("end_date") else None
-        if not dates_overlap(start, end, lst_start, lst_end):
+        if not date_covers(start, end, lst_start, lst_end):
             continue
         
         # Skip booked listings
