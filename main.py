@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+from models.booking import BookingCreate, BookingRead, BookingUpdate
 
 
 # Service URLs
@@ -130,7 +131,7 @@ def get_listings(filters: dict) -> List[dict]:
 
 def get_bookings() -> List[dict]:
     """Fetch all bookings from booking service."""
-    resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=15)
+    resp = requests.get(f"{BOOKING_SERVICE_URL}/bookings/all", timeout=5)
     resp.raise_for_status()
     return resp.json()
 
@@ -163,7 +164,6 @@ def available_listings(
     - Don't belong to the current user (unless filtered)
     - Aren't already booked
     """
-    # logical FK constraint
     assert_user_exists(user_email)
     
     # Validate dates
@@ -215,10 +215,6 @@ def available_listings(
     
     # Filter available listings
     booked_ids = {b["listing_id"] for b in results["bookings"]}
-
-    # logical FK constraint
-    for listing_id in booked_ids:
-        assert_listing_exists(listing_id)
 
     available = []
     
@@ -292,6 +288,24 @@ def available_listings(
         ),
     )
 
+@app.post("/composite/create-bookings", status_code=201, response_model=BookingRead)
+def create_booking_composite(payload: BookingCreate):
+    # logical FK constraint
+    assert_listing_exists(payload.listing_id)
+
+    try:
+        r = requests.post(
+            f"{BOOKING_SERVICE_URL.rstrip('/')}/bookings",
+            json=payload.model_dump(mode="json"),
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Booking service unreachable: {e}")
+
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, f"Booking service error: {r.text}")
+
+    return r.json()
 
 @app.get("/")
 def root():
