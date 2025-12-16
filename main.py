@@ -292,6 +292,7 @@ def available_listings(
 def create_booking_composite(payload: BookingCreate):
     # logical FK constraint
     assert_listing_exists(payload.listing_id)
+    assert_user_exists(payload.tenant_email)
 
     try:
         r = requests.post(
