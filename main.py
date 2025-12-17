@@ -294,6 +294,10 @@ def create_booking_composite(payload: BookingCreate):
     assert_listing_exists(payload.listing_id)
     assert_user_exists(payload.tenant_email)
 
+    # Validate dates
+    if payload.start_date and payload.end_date and payload.end_date <= payload.start_date:
+        raise HTTPException(400, "End date must be after start date")
+
     try:
         r = requests.post(
             f"{BOOKING_SERVICE_URL.rstrip('/')}/bookings",
