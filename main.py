@@ -51,6 +51,12 @@ class PaginatedResponse(BaseModel):
     total_pages: int
     _links: PaginatedLinks
 
+class PageEchoResponse(BaseModel):
+    items: List[ListingWithLinks]
+    page: int
+    page_size: int
+
+
 def assert_user_exists(email: str):
     try:
         r = requests.get(
@@ -313,7 +319,7 @@ def get_bookings() -> List[dict]:
 #     )
 
 
-@app.get("/composite/available-listings", response_model=List[ListingWithLinks])
+@app.get("/composite/available-listings", response_model=PageEchoResponse)
 def available_listings(
     # Required
     user_email: str = Query(..., description="Current user's email"),
@@ -393,16 +399,21 @@ def available_listings(
 
         available.append(lst)
 
-    return [
-        ListingWithLinks(
-            data=lst,
-            _links={
-                "self": f"/listing/{lst['id']}",
-                "landlord_listings": f"/listing/user/{lst.get('landlord_email')}",
-            },
-        )
-        for lst in available
-    ]
+    return PageEchoResponse(
+        items=[
+            ListingWithLinks(
+                data=lst,
+                _links={
+                    "self": f"/listing/{lst['id']}",
+                    "landlord_listings": f"/listing/user/{lst.get('landlord_email')}",
+                },
+            )
+            for lst in available
+        ],
+        page=page,
+        page_size=page_size,
+    )
+
 
 @app.post("/composite/create-bookings", status_code=201, response_model=BookingRead)
 def create_booking_composite(payload: BookingCreate):
